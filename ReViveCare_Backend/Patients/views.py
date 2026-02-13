@@ -20,6 +20,15 @@ import json
 import threading
 import time
 
+# Twilio import for phone calls
+try:
+    from twilio.rest import Client
+    TWILIO_AVAILABLE = True
+except ImportError:
+    TWILIO_AVAILABLE = False
+    print("⚠️ Twilio not installed. Phone calls will be disabled.")
+
+
 load_dotenv()
 # Import LangChain components
 try:
@@ -226,17 +235,26 @@ def send_email_alert(patient, user_query, patient_response, seriousness_score):
     """Send email alert to doctor when seriousness score is high"""
     try:
         smtp_server = os.environ.get("SMTP_SERVER")
-        smtp_port = int(os.environ.get("SMTP_PORT"))
+        smtp_port = int(os.environ.get("SMTP_PORT", 587))
         sender_email = os.environ.get("EMAIL_SENDER")
         sender_password = os.environ.get("EMAIL_PASSWORD")
         doctor_email = os.environ.get("DOCTOR_EMAIL")
         
-        msg = MIMEMultipart()
-        msg['From'] = sender_email
-        msg['To'] = doctor_email
-        msg['Subject'] = f"🚨 URGENT - Patient Alert: {patient.name} (Score: {seriousness_score:.2f})"
-        
-        email_body = f"""
+        # Check if email is configured
+        if not all([smtp_server, sender_email, sender_password, doctor_email]):
+            print(f"⚠️ EMAIL NOT CONFIGURED - Missing environment variables")
+            print(f"   SMTP_SERVER: {'✓' if smtp_server else '✗'}")
+            print(f"   EMAIL_SENDER: {'✓' if sender_email else '✗'}")
+            print(f"   EMAIL_PASSWORD: {'✓' if sender_password else '✗'}")
+            print(f"   DOCTOR_EMAIL: {'✓' if doctor_email else '✗'}")
+        else:
+            # Send email
+            msg = MIMEMultipart()
+            msg['From'] = sender_email
+            msg['To'] = doctor_email
+            msg['Subject'] = f"🚨 URGENT - Patient Alert: {patient.name} (Score: {seriousness_score:.2f})"
+            
+            email_body = f"""
 URGENT PATIENT ALERT - ReViveCare System
 ============================================
 
@@ -259,43 +277,52 @@ Please contact the patient immediately to assess their condition and provide app
 
 This is an automated alert from the ReViveCare post-discharge monitoring system.
 """
-        
-        msg.attach(MIMEText(email_body, 'plain'))
-        
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()
-        server.login(sender_email, sender_password)
-        text = msg.as_string()
-        server.sendmail(sender_email, doctor_email, text)
-        server.quit()
-        
-        print(f"✅ EMAIL ALERT SENT TO DOCTOR: {doctor_email}")
-        TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-        TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-        TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")  # Your Twilio phone number
-        TO_NUMBER = os.getenv("TO_NUMBER")
             
-        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+            msg.attach(MIMEText(email_body, 'plain'))
             
-        call = client.calls.create(
-            to=TO_NUMBER,
-            from_=TWILIO_PHONE_NUMBER,
-            twiml=f"<Response><Say voice='alice'>This is an emergency please call {patient.name}</Say></Response>"
-        )
+            server = smtplib.SMTP(smtp_server, smtp_port)
+            server.starttls()
+            server.login(sender_email, sender_password)
+            text = msg.as_string()
+            server.sendmail(sender_email, doctor_email, text)
+            server.quit()
             
-        context = {
-            'call_sid': call.sid,
-            'status': 'Call initiated successfully',
-            'phone_number': TO_NUMBER,
-            'message': f"IVR call is being made to say  'This is an emergency please call {patient.name}'"
-        }
+            print(f"✅ EMAIL ALERT SENT TO DOCTOR: {doctor_email}")
+        
+        # Attempt Twilio phone call (optional - only if configured)
+        if TWILIO_AVAILABLE:
+            TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+            TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+            TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
+            TO_NUMBER = os.getenv("TO_NUMBER")
+            
+            if all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, TO_NUMBER]):
+                try:
+                    client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+                    
+                    call = client.calls.create(
+                        to=TO_NUMBER,
+                        from_=TWILIO_PHONE_NUMBER,
+                        twiml=f"<Response><Say voice='alice'>This is an emergency please call {patient.name}</Say></Response>"
+                    )
+                    
+                    print(f"✅ PHONE CALL INITIATED: {call.sid}")
+                    print(f"   To: {TO_NUMBER}")
+                    print(f"   Status: {call.status}")
+                    
+                except Exception as phone_error:
+                    print(f"⚠️ PHONE CALL FAILED: {str(phone_error)}")
+            else:
+                print(f"ℹ️  PHONE CALL SKIPPED - Twilio credentials not configured")
+        else:
+            print(f"ℹ️  PHONE CALL SKIPPED - Twilio library not installed")
+
         
     except Exception as e:
-        print(f"⚠️ EMAIL SEND FAILED: {str(e)}")
-        context = {
-            'status': 'Error making call',
-            'error': str(e)
-        }
+        print(f"⚠️ ALERT SYSTEM ERROR: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
 
 @require_http_methods(["POST"])
 def chatbot_send(request):
@@ -403,6 +430,333 @@ Add this to your Patients/views.py file
 """
 # ============================================================================
 # METRICS FROM PERFECT FORM VIDEO ANALYSIS - BOTH ARMS
+# ============================================================================
+
+LEFT_ARM_METRICS = {
+    "down_threshold": 35,
+    "up_threshold": 100,
+    "excellent_peak": 105,
+    "good_peak": 95,
+    "min_rom": 60,
+    "target_elbow": 176,
+    "max_elbow_variance": 5,
+    "max_shoulder_elevation": 0.025,
+}
+
+RIGHT_ARM_METRICS = {
+    "down_threshold": 35,
+    "up_threshold": 100,
+    "excellent_peak": 105,
+    "good_peak": 95,
+    "min_rom": 60,
+    "target_elbow": 175,
+    "max_elbow_variance": 5,
+    "max_shoulder_elevation": 0.025,
+}
+
+SYMMETRY_METRICS = {
+    "excellent_threshold": 5,
+    "good_threshold": 10,
+    "max_allowed": 15,
+}
+
+# Global variables for workout tracking
+workout_state = {
+    'active': False,
+    'exercise_type': 'shoulder-extension',
+    'complete': False,
+    'counter': 0,
+    'stage': None,
+    'excellent_reps': 0,
+    'good_reps': 0,
+    'partial_reps': 0,
+    'target_reps': 12,
+    'current_rep': {
+        "left_min_angle": 180,
+        "left_max_angle": 0,
+        "left_elbow_angles": [],
+        "left_shoulder_elevation": 0,
+        "right_min_angle": 180,
+        "right_max_angle": 0,
+        "right_elbow_angles": [],
+        "right_shoulder_elevation": 0,
+        "max_asymmetry": 0,
+    },
+    'initial_left_shoulder': None,
+    'initial_right_shoulder': None,
+    'form_warning': '',
+    'left_shoulder_angle': 0,
+    'right_shoulder_angle': 0,
+    'left_elbow_angle': 0,
+    'right_elbow_angle': 0,
+    'asymmetry': 0,
+}
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def calculate_angle(a, b, c):
+    """Calculate angle between three points (a-b-c where b is the vertex)"""
+    a = np.array(a)
+    b = np.array(b)
+    c = np.array(c)
+    
+    radians = np.arctan2(c[1]-b[1], c[0]-b[0]) - np.arctan2(a[1]-b[1], a[0]-b[0])
+    angle = np.abs(radians*180.0/np.pi)
+    
+    if angle > 180.0:
+        angle = 360 - angle
+        
+    return angle
+
+def get_landmark_coords(landmarks, landmark_id):
+    """Extract x, y coordinates from a landmark"""
+    landmark = landmarks[landmark_id]
+    return [landmark.x, landmark.y]
+
+def calculate_shoulder_elevation(current_shoulder, initial_shoulder):
+    """Calculate vertical shoulder movement (shrugging detection)"""
+    return abs(current_shoulder[1] - initial_shoulder[1])
+
+def draw_text_with_background(image, text, position, font_scale=0.7, thickness=2, 
+                               text_color=(255, 255, 255), bg_color=(0, 0, 0)):
+    """Draw text with a background rectangle for better visibility"""
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+    x, y = position
+    
+    cv2.rectangle(image, (x - 5, y - text_height - 5), 
+                  (x + text_width + 5, y + baseline + 5), bg_color, -1)
+    
+    cv2.putText(image, text, (x, y), font, font_scale, text_color, thickness, cv2.LINE_AA)
+
+# ============================================================================
+# EXERCISE LOGIC HANDLERS
+# ============================================================================
+
+def handle_bicep_curl(landmarks, mp_pose):
+    global workout_state
+    
+    left_shoulder = get_landmark_coords(landmarks, mp_pose.PoseLandmark.LEFT_SHOULDER.value)
+    left_elbow = get_landmark_coords(landmarks, mp_pose.PoseLandmark.LEFT_ELBOW.value)
+    left_wrist = get_landmark_coords(landmarks, mp_pose.PoseLandmark.LEFT_WRIST.value)
+    
+    right_shoulder = get_landmark_coords(landmarks, mp_pose.PoseLandmark.RIGHT_SHOULDER.value)
+    right_elbow = get_landmark_coords(landmarks, mp_pose.PoseLandmark.RIGHT_ELBOW.value)
+    right_wrist = get_landmark_coords(landmarks, mp_pose.PoseLandmark.RIGHT_WRIST.value)
+    
+    left_angle = calculate_angle(left_shoulder, left_elbow, left_wrist)
+    right_angle = calculate_angle(right_shoulder, right_elbow, right_wrist)
+    
+    # Logic: Start > 160 (down), Curl < 30 (up) - relaxed thresholds
+    avg_angle = (left_angle + right_angle) / 2
+    
+    if avg_angle > 150:
+        workout_state['stage'] = "down"
+    if avg_angle < 50 and workout_state['stage'] == 'down':
+        workout_state['stage'] = "up"
+        workout_state['counter'] += 1
+        workout_state['good_reps'] += 1
+        
+    return left_angle, right_angle, "Keep elbows tucked!"
+
+def handle_jumping_jacks(landmarks, mp_pose):
+    global workout_state
+    
+    left_shoulder = get_landmark_coords(landmarks, mp_pose.PoseLandmark.LEFT_SHOULDER.value)
+    right_shoulder = get_landmark_coords(landmarks, mp_pose.PoseLandmark.RIGHT_SHOULDER.value)
+    left_wrist = get_landmark_coords(landmarks, mp_pose.PoseLandmark.LEFT_WRIST.value)
+    right_wrist = get_landmark_coords(landmarks, mp_pose.PoseLandmark.RIGHT_WRIST.value)
+    left_ankle = get_landmark_coords(landmarks, mp_pose.PoseLandmark.LEFT_ANKLE.value)
+    right_ankle = get_landmark_coords(landmarks, mp_pose.PoseLandmark.RIGHT_ANKLE.value)
+
+    # Logic: Hands above head AND feet apart = UP
+    # Hands down AND feet together = DOWN
+    
+    # Y coord inverted: 0 is top
+    hands_up = (left_wrist[1] < left_shoulder[1]) and (right_wrist[1] < right_shoulder[1])
+    feet_apart = abs(left_ankle[0] - right_ankle[0]) > 0.5 # Normalized coords
+    
+    hands_down = (left_wrist[1] > left_shoulder[1]) and (right_wrist[1] > right_shoulder[1])
+    
+    if hands_up:
+        workout_state['stage'] = "up"
+    elif hands_down and workout_state['stage'] == "up":
+        workout_state['stage'] = "down"
+        workout_state['counter'] += 1
+        workout_state['good_reps'] += 1
+        
+    return 0, 0, "Jump higher!"
+
+def handle_arm_raises(landmarks, mp_pose):
+    # Front raises logic
+    return handle_shoulder_extension(landmarks, mp_pose)
+
+def handle_shoulder_extension(landmarks, mp_pose):
+    # Existing Side Raise logic
+    global workout_state
+    
+    left_shoulder = get_landmark_coords(landmarks, mp_pose.PoseLandmark.LEFT_SHOULDER.value)
+    left_elbow = get_landmark_coords(landmarks, mp_pose.PoseLandmark.LEFT_ELBOW.value)
+    left_wrist = get_landmark_coords(landmarks, mp_pose.PoseLandmark.LEFT_WRIST.value)
+    left_hip = get_landmark_coords(landmarks, mp_pose.PoseLandmark.LEFT_HIP.value)
+    
+    right_shoulder = get_landmark_coords(landmarks, mp_pose.PoseLandmark.RIGHT_SHOULDER.value)
+    right_elbow = get_landmark_coords(landmarks, mp_pose.PoseLandmark.RIGHT_ELBOW.value)
+    right_wrist = get_landmark_coords(landmarks, mp_pose.PoseLandmark.RIGHT_WRIST.value)
+    right_hip = get_landmark_coords(landmarks, mp_pose.PoseLandmark.RIGHT_HIP.value)
+    
+    left_shoulder_angle = calculate_angle(left_hip, left_shoulder, left_elbow)
+    right_shoulder_angle = calculate_angle(right_hip, right_shoulder, right_elbow)
+    
+    avg_shoulder_angle = (left_shoulder_angle + right_shoulder_angle) / 2
+    
+    if avg_shoulder_angle >= RIGHT_ARM_METRICS["up_threshold"]:
+         workout_state['stage'] = "up"
+    
+    if avg_shoulder_angle <= LEFT_ARM_METRICS["down_threshold"] and workout_state['stage'] == "up":
+         workout_state['stage'] = "down"
+         workout_state['counter'] += 1
+         workout_state['good_reps'] += 1
+         
+    return left_shoulder_angle, right_shoulder_angle, "Keep straight arms"
+
+# ============================================================================
+# VIDEO STREAMING GENERATOR
+# ============================================================================
+
+def generate_frames():
+    """Generate video frames with pose detection and rep counting"""
+    global workout_state
+    
+    mp_drawing = mp.solutions.drawing_utils
+    mp_pose = mp.solutions.pose
+    
+    cap = cv2.VideoCapture(0)
+    
+    with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            frame = cv2.flip(frame, 1)
+            image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            image.flags.writeable = False
+            results = pose.process(image)
+            image.flags.writeable = True
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            
+            # WAITING STATE
+            if not workout_state['active']:
+                cv2.rectangle(image, (0, 0), (image.shape[1], image.shape[0]), (50, 50, 50), -1)
+                draw_text_with_background(image, "CLICK 'START WORKOUT'", 
+                                        (image.shape[1]//2 - 250, image.shape[0]//2),
+                                        font_scale=1.5, thickness=3, 
+                                        text_color=(0, 255, 0), bg_color=(0, 0, 0))
+            
+            # ACTIVE STATE
+            elif workout_state['active'] and not workout_state['complete']:
+                try:
+                    landmarks = results.pose_landmarks.landmark
+                    ex_type = workout_state.get('exercise_type', 'shoulder-extension')
+                    
+                    val1, val2, msg = 0, 0, ""
+                    
+                    if ex_type == 'bicep-curl':
+                        val1, val2, msg = handle_bicep_curl(landmarks, mp_pose)
+                    elif ex_type == 'jumping-jacks':
+                        val1, val2, msg = handle_jumping_jacks(landmarks, mp_pose)
+                    elif ex_type == 'arm-raises':
+                        val1, val2, msg = handle_arm_raises(landmarks, mp_pose)
+                    else:
+                        val1, val2, msg = handle_shoulder_extension(landmarks, mp_pose)
+                        
+                    workout_state['form_warning'] = msg
+                    
+                    if workout_state['counter'] >= workout_state['target_reps']:
+                         workout_state['complete'] = True
+                         workout_state['active'] = False
+                         
+                except Exception as e:
+                    pass
+                
+                # UI Overlay
+                cv2.rectangle(image, (0, 0), (300, 150), (255, 255, 255), -1) 
+                cv2.putText(image, f"{workout_state['counter']} / {workout_state['target_reps']}", (10, 50),
+                           cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 0), 3, cv2.LINE_AA)
+                
+                stage_display = workout_state['stage'].upper() if workout_state['stage'] else '--'
+                cv2.putText(image, stage_display, (10, 100),
+                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 100, 255), 2, cv2.LINE_AA)
+            
+            # Draw landmarks
+            if results.pose_landmarks:
+                mp_drawing.draw_landmarks(
+                    image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
+                    mp_drawing.DrawingSpec(color=(245, 117, 66), thickness=2, circle_radius=2),
+                    mp_drawing.DrawingSpec(color=(245, 66, 230), thickness=2, circle_radius=2))
+            
+            ret, buffer = cv2.imencode('.jpg', image)
+            frame = buffer.tobytes()
+            yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+    
+    cap.release()
+
+# ============================================================================
+# DJANGO VIEWS
+# ============================================================================
+
+def srtwo(request):
+    return render(request, 'side_lateral_raise.html')
+
+def video_feed(request):
+    response = StreamingHttpResponse(generate_frames(),
+                                content_type='multipart/x-mixed-replace; boundary=frame')
+    response['Access-Control-Allow-Origin'] = '*'
+    response['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+    response['Access-Control-Allow-Headers'] = '*'
+    response['Cache-Control'] = 'no-cache'
+    return response
+
+@csrf_exempt
+def start_workout(request):
+    global workout_state
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        target_reps = data.get('target_reps', 12)
+        exercise_type = data.get('exercise_type', 'shoulder-extension')
+        
+        workout_state['active'] = True
+        workout_state['exercise_type'] = exercise_type
+        workout_state['complete'] = False
+        workout_state['counter'] = 0
+        workout_state['stage'] = None
+        workout_state['target_reps'] = target_reps
+        
+        return JsonResponse({'status': 'started', 'target_reps': target_reps})
+    
+    return JsonResponse({'error': 'Invalid request'}, status=400)
+
+@csrf_exempt
+def get_workout_status(request):
+    global workout_state
+    return JsonResponse({
+        'active': workout_state['active'],
+        'complete': workout_state['complete'],
+        'counter': workout_state['counter'],
+        'target_reps': workout_state['target_reps'],
+        'form_warning': workout_state['form_warning'],
+    })
+
+@csrf_exempt
+def reset_workout(request):
+    global workout_state
+    workout_state['active'] = False
+    workout_state['complete'] = False
+    workout_state['counter'] = 0
+    return JsonResponse({'status': 'reset'})
 # ============================================================================
 
 LEFT_ARM_METRICS = {

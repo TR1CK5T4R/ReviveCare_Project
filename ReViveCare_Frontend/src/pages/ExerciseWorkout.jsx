@@ -12,6 +12,51 @@ const exerciseIcons = {
     'arm-raises': Target
 };
 
+// Video mapping
+const exerciseVideos = {
+    'bicep-curl': 'bc.mp4',
+    'shoulder-extension': 'sl.mp4',
+    'jumping-jacks': 'jj.mp4',
+    'arm-raises': 'ar.mp4'
+};
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
+const VideoModal = ({ isOpen, onClose, videoFile, title }) => {
+    if (!isOpen || !videoFile) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-black rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl relative">
+                <button
+                    onClick={onClose}
+                    className="absolute top-4 right-4 z-10 p-2 bg-black/50 text-white rounded-full hover:bg-white/20 hover:text-white transition-colors"
+                >
+                    <X className="w-6 h-6" />
+                </button>
+
+                <div className="aspect-video w-full bg-black flex items-center justify-center">
+                    <video
+                        src={`${API_BASE_URL}/static/Patients/videos/${videoFile}`}
+                        controls
+                        autoPlay
+                        className="w-full h-full object-contain"
+                    >
+                        Your browser does not support the video tag.
+                    </video>
+                </div>
+
+                <div className="p-4 bg-gray-900 border-t border-gray-800">
+                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                        <Play className="w-5 h-5 text-emerald-500 fill-emerald-500" />
+                        Demo: {title}
+                    </h3>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const SettingsModal = ({ isOpen, onClose, onSave, defaultReps, defaultSets, defaultRest }) => {
     const [reps, setReps] = useState(defaultReps);
     const [sets, setSets] = useState(defaultSets);
@@ -182,6 +227,7 @@ export default function ExerciseWorkout() {
     const [currentSet, setCurrentSet] = useState(1);
     const [isResting, setIsResting] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
+    const [showVideo, setShowVideo] = useState(false);
 
     const [workoutStarted, setWorkoutStarted] = useState(false);
     const [workoutStatus, setWorkoutStatus] = useState(null);
@@ -209,7 +255,7 @@ export default function ExerciseWorkout() {
             console.log(`Starting Set ${currentSet}/${targetSets} with ${targetReps} reps`);
 
             // Start the workout session on Django backend
-            const response = await djangoAPI.exercise.startWorkout(targetReps);
+            const response = await djangoAPI.exercise.startWorkout(targetReps, exercise.id);
             console.log('Workout started:', response);
 
             setWorkoutStarted(true);
@@ -311,14 +357,23 @@ export default function ExerciseWorkout() {
                                 </div>
                             </div>
 
-                            <button
-                                onClick={() => setShowSettings(true)}
-                                disabled={workoutStarted || isResting}
-                                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                            >
-                                <Settings className="w-4 h-4" />
-                                Settings
-                            </button>
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={() => setShowVideo(true)}
+                                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-all"
+                                >
+                                    <Play className="w-4 h-4" />
+                                    Demo Video
+                                </button>
+                                <button
+                                    onClick={() => setShowSettings(true)}
+                                    disabled={workoutStarted || isResting}
+                                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                >
+                                    <Settings className="w-4 h-4" />
+                                    Settings
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -525,7 +580,6 @@ export default function ExerciseWorkout() {
                 </div>
             </div>
 
-            {/* Config Modal */}
             <SettingsModal
                 isOpen={showSettings}
                 onClose={() => setShowSettings(false)}
@@ -533,6 +587,14 @@ export default function ExerciseWorkout() {
                 defaultReps={targetReps}
                 defaultSets={targetSets}
                 defaultRest={restTime}
+            />
+
+            {/* Video Modal */}
+            <VideoModal
+                isOpen={showVideo}
+                onClose={() => setShowVideo(false)}
+                videoFile={exerciseVideos[exercise.id]}
+                title={exercise.name}
             />
         </PageLayout>
     );

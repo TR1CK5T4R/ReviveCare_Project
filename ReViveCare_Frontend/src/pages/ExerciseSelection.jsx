@@ -11,7 +11,8 @@ const exercises = [
         icon: Dumbbell,
         color: 'emerald',
         endpoint: '/bc',
-        targetReps: 12
+        targetReps: 12,
+        hasCamera: true
     },
     {
         id: 'shoulder-extension',
@@ -30,7 +31,8 @@ const exercises = [
         icon: Zap,
         color: 'purple',
         endpoint: '/jj',
-        targetReps: 20
+        targetReps: 20,
+        hasCamera: true
     },
     {
         id: 'arm-raises',
@@ -39,7 +41,8 @@ const exercises = [
         icon: Target,
         color: 'orange',
         endpoint: '/ar',
-        targetReps: 15
+        targetReps: 15,
+        hasCamera: true
     }
 ];
 

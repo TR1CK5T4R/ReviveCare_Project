@@ -185,21 +185,24 @@ export const exerciseAPI = {
     getSRTwo: async () => apiCall('/srtwo'),
 
     // Workout control endpoints
-    startWorkout: async (targetReps = 12) => {
-        return apiCall('/sr/start/', 'POST', { target_reps: targetReps });
+    startWorkout: async (targetReps = 12, exerciseType = 'shoulder-extension') => {
+        return apiCall('/exercise/start/', 'POST', {
+            target_reps: targetReps,
+            exercise_type: exerciseType
+        });
     },
 
     getWorkoutStatus: async () => {
-        return apiCall('/sr/status/');
+        return apiCall('/exercise/status/');
     },
 
     resetWorkout: async () => {
-        return apiCall('/sr/reset/', 'POST');
+        return apiCall('/exercise/reset/', 'POST');
     },
 
     // Video feed URL (not a JSON endpoint)
     getVideoFeedUrl: () => {
-        return `${API_BASE_URL}/sr/video_feed/`;
+        return `${API_BASE_URL}/exercise/video_feed/`;
     },
 };
 

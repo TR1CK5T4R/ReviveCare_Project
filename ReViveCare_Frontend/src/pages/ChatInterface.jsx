@@ -72,6 +72,34 @@ const MessageBubble = ({ message, isAI }) => {
                     <p className={`text-sm leading-relaxed ${isAI ? 'text-gray-800' : 'text-white'}`}>
                         {message.text}
                     </p>
+
+                    {/* Severity Bar - Only show for AI messages with severity score */}
+                    {isAI && message.seriousnessScore > 0 && (
+                        <div className="mt-3 pt-3 border-t border-gray-100">
+                            <div className="flex items-center gap-2 text-xs">
+                                <span className="text-gray-600 font-medium">Severity:</span>
+                                <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                    <div
+                                        className={`h-full transition-all duration-500 ${message.seriousnessScore > 0.7 ? 'bg-red-500' :
+                                            message.seriousnessScore > 0.4 ? 'bg-yellow-500' : 'bg-green-500'
+                                            }`}
+                                        style={{ width: `${message.seriousnessScore * 100}%` }}
+                                    />
+                                </div>
+                                <span className={`font-semibold ${message.seriousnessScore > 0.7 ? 'text-red-600' :
+                                    message.seriousnessScore > 0.4 ? 'text-yellow-600' : 'text-green-600'
+                                    }`}>
+                                    {(message.seriousnessScore * 100).toFixed(0)}%
+                                </span>
+                            </div>
+                            {message.seriousnessScore > 0.7 && (
+                                <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                                    <AlertCircle className="w-3 h-3" />
+                                    High severity - Doctor has been notified
+                                </p>
+                            )}
+                        </div>
+                    )}
                 </div>
                 <span className={`text-xs text-gray-500 mt-1 block ${isAI ? 'text-left' : 'text-right'}`}>
                     {message.timestamp}
@@ -262,7 +290,7 @@ function ChatInterface() {
                     }
                 />
 
-                <Card className="overflow-hidden flex flex-col p-0" style={{ height: 'calc(100vh - 380px)' }}>
+                <Card className="overflow-hidden flex flex-col p-0" style={{ height: 'calc(100vh - 260px)' }}>
                     {/* Messages area */}
                     <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
                         {messages.map((message) => (
