@@ -1,4 +1,5 @@
 # patient/views.py
+from dotenv import load_dotenv
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.http import JsonResponse , StreamingHttpResponse
@@ -19,6 +20,7 @@ import json
 import threading
 import time
 
+load_dotenv()
 # Import LangChain components
 try:
     from langchain_groq import ChatGroq
@@ -191,7 +193,7 @@ def initialize_model():
         max_tokens=1024,
         timeout=30,
         max_retries=2,
-        api_key="os.getenv("GROQ_API_KEY")",
+        api_key=os.getenv("GROQ_API_KEY")
     )
 
 
